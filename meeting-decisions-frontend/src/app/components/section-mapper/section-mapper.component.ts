@@ -3,6 +3,7 @@
 import { Component, Input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { DocumentSection, ContentMapping, TemplateBookmark } from '../../models/document.models';
 import { MappingService } from '../../services/mapping.service';
@@ -48,13 +49,13 @@ import { MappingService } from '../../services/mapping.service';
               (click)="selectSection(section)">
 
               <div class="section-header">
-                <span class="section-type-badge" [ngClass]="'type-' + section.type.toLowerCase()">
+                <span class="section-type-badge" [ngClass]="getSectionTypeClass(section.type)">
                   {{ section.type }}
                 </span>
                 <span *ngIf="isMapped(section.id)" class="mapped-badge">✓</span>
               </div>
 
-              <div class="section-content" [innerHTML]="section.htmlContent"></div>
+              <div class="section-content" [innerHTML]="getSafeHtml(section.htmlContent)"></div>
 
               <div class="section-actions" *ngIf="!isMapped(section.id)">
                 <button
@@ -86,7 +87,7 @@ import { MappingService } from '../../services/mapping.service';
 
           <div class="selected-preview-box">
             <label>Επιλεγμένο Τμήμα:</label>
-            <div class="selected-preview" [innerHTML]="selectedSection.htmlContent"></div>
+            <div class="selected-preview" [innerHTML]="getSafeHtml(selectedSection.htmlContent)"></div>
           </div>
 
           <div class="form-group">
@@ -620,7 +621,20 @@ export class SectionMapperComponent implements OnInit {
   editedContent: string = '';
   searchText: string = '';
 
-  constructor(private mappingService: MappingService) {}
+  constructor(
+    private mappingService: MappingService,
+    private sanitizer: DomSanitizer
+  ) {}
+
+  getSafeHtml(html: string): SafeHtml {
+    return this.sanitizer.sanitize(1, html) || html;
+  }
+
+  getSectionTypeClass(type: string): string {
+    if (!type) return 'type-paragraph';
+    const lowerType = typeof type === 'string' ? type.toLowerCase() : String(type).toLowerCase();
+    return `type-${lowerType}`;
+  }
 
   ngOnInit(): void {
     this.filteredSections = [...this.sections];

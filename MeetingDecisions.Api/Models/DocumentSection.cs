@@ -5,7 +5,7 @@ public class DocumentSection
     public string Id { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public string HtmlContent { get; set; } = string.Empty;
-    public SectionType Type { get; set; }
+    public SectionType Type { get; set; }  // <-- Αυτό είναι enum
     public int OrderIndex { get; set; }
     public bool HasFormatting { get; set; }
     public List<string> Styles { get; set; } = new();

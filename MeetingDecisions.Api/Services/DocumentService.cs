@@ -47,39 +47,64 @@ public class DocumentService : IDocumentService
 
             int sectionIndex = 0;
 
-            // Extract paragraphs
-            foreach (Paragraph para in doc.GetChildNodes(NodeType.Paragraph, true))
+            // Extract paragraphs - iterate through all sections and paragraphs
+            foreach (Section docSection in doc.Sections)
             {
-                if (string.IsNullOrWhiteSpace(para.GetText().Trim()))
-                    continue;
-
-                var section = new DocumentSection
+                foreach (Paragraph para in docSection.Body.Paragraphs)
                 {
-                    Id = $"section_{sectionIndex++}",
-                    Content = para.GetText().Trim(),
-                    HtmlContent = ConvertToHtml(para),
-                    Type = DetermineSectionType(para),
-                    OrderIndex = sectionIndex,
-                    HasFormatting = HasFormatting(para),
-                    Styles = ExtractStyles(para)
-                };
+                    // Get the text and trim it
+                    var text = para.GetText();
+                    
+                    // Skip if empty or just whitespace
+                    if (string.IsNullOrWhiteSpace(text))
+                        continue;
 
-                sections.Add(section);
+                    // Skip page breaks and section breaks
+                    if (text.Trim().Length < 2)
+                        continue;
+
+                    var section = new DocumentSection
+                    {
+                        Id = $"section_{sectionIndex}",
+                        Content = text.Trim(),
+                        HtmlContent = ConvertToHtml(para),
+                        Type = DetermineSectionType(para),
+                        OrderIndex = sectionIndex,
+                        HasFormatting = HasFormatting(para),
+                        Styles = ExtractStyles(para)
+                    };
+
+                    sections.Add(section);
+                    sectionIndex++;
+
+                    // Log for debugging
+                    _logger.LogDebug($"Extracted section {sectionIndex}: {text.Substring(0, Math.Min(50, text.Length))}...");
+                }
+
+                // Extract tables from this section
+                foreach (Table table in docSection.Body.Tables)
+                {
+                    var tableText = ExtractTableText(table);
+                    
+                    if (string.IsNullOrWhiteSpace(tableText))
+                        continue;
+
+                    sections.Add(new DocumentSection
+                    {
+                        Id = $"table_{sectionIndex}",
+                        Content = tableText.Trim(),
+                        HtmlContent = ConvertTableToHtml(table),
+                        Type = SectionType.Table,
+                        OrderIndex = sectionIndex,
+                        HasFormatting = true
+                    });
+
+                    sectionIndex++;
+                    _logger.LogDebug($"Extracted table {sectionIndex}");
+                }
             }
 
-            // Extract tables
-            foreach (Table table in doc.GetChildNodes(NodeType.Table, true))
-            {
-                sections.Add(new DocumentSection
-                {
-                    Id = $"table_{sectionIndex++}",
-                    Content = ExtractTableText(table),
-                    HtmlContent = ConvertTableToHtml(table),
-                    Type = SectionType.Table,
-                    OrderIndex = sectionIndex,
-                    HasFormatting = true
-                });
-            }
+            _logger.LogInformation($"Total sections extracted: {sections.Count}");
 
             // Get bookmarks from template
             var bookmarks = await GetTemplateBookmarks(templateId);
@@ -91,6 +116,11 @@ public class DocumentService : IDocumentService
                 AvailableBookmarks = bookmarks.Select(b => b.Name).ToList(),
                 DocumentMetadata = ExtractMetadata(doc)
             };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error extracting document sections");
+            throw;
         }
         finally
         {
@@ -231,13 +261,37 @@ public class DocumentService : IDocumentService
         var sb = new StringBuilder();
         sb.Append("<p>");
 
-        foreach (Run run in para.Runs)
+        // Check if paragraph has any runs
+        if (para.Runs.Count == 0)
         {
-            var text = System.Net.WebUtility.HtmlEncode(run.Text);
-            if (run.Font.Bold) text = $"<strong>{text}</strong>";
-            if (run.Font.Italic) text = $"<em>{text}</em>";
-            if (run.Font.Underline != Underline.None) text = $"<u>{text}</u>";
+            // If no runs, just get the text directly
+            var text = System.Net.WebUtility.HtmlEncode(para.GetText().Trim());
             sb.Append(text);
+        }
+        else
+        {
+            // Process each run
+            foreach (Run run in para.Runs)
+            {
+                var text = run.Text;
+                
+                // Skip empty runs
+                if (string.IsNullOrEmpty(text))
+                    continue;
+
+                // Encode HTML entities
+                text = System.Net.WebUtility.HtmlEncode(text);
+
+                // Apply formatting
+                if (run.Font.Bold) 
+                    text = $"<strong>{text}</strong>";
+                if (run.Font.Italic) 
+                    text = $"<em>{text}</em>";
+                if (run.Font.Underline != Underline.None) 
+                    text = $"<u>{text}</u>";
+                
+                sb.Append(text);
+            }
         }
 
         sb.Append("</p>");
