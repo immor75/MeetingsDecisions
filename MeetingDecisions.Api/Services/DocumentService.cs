@@ -12,6 +12,10 @@ public class DocumentService : IDocumentService
     private readonly ILogger<DocumentService> _logger;
     private readonly string _templatesPath;
     private readonly string _tempPath;
+    
+    // Cache για τα extracted documents (temporary solution)
+    private static readonly Dictionary<string, List<DocumentSection>> _extractedDocumentsCache 
+        = new Dictionary<string, List<DocumentSection>>();
 
     public DocumentService(ILogger<DocumentService> logger, IConfiguration configuration)
     {
@@ -109,9 +113,14 @@ public class DocumentService : IDocumentService
             // Get bookmarks from template
             var bookmarks = await GetTemplateBookmarks(templateId);
 
+            var documentId = Guid.NewGuid().ToString();
+            
+            // Cache the sections for later use in GenerateDecision
+            _extractedDocumentsCache[documentId] = sections;
+
             return new DocumentExtractionResponse
             {
-                DocumentId = Guid.NewGuid().ToString(),
+                DocumentId = documentId,
                 Sections = sections.OrderBy(s => s.OrderIndex).ToList(),
                 AvailableBookmarks = bookmarks.Select(b => b.Name).ToList(),
                 DocumentMetadata = ExtractMetadata(doc)
@@ -132,7 +141,14 @@ public class DocumentService : IDocumentService
     public async Task<byte[]> GenerateDecision(GenerateDecisionRequest request)
     {
         var templatePath = Path.Combine(_templatesPath, $"{request.TemplateId}.docx");
-        var outputPath = Path.Combine(_tempPath, Guid.NewGuid().ToString() + ".docx");
+        
+        // Use document ID from metadata if provided, otherwise generate new
+        var documentId = request.Metadata.ContainsKey("DOCUMENT_ID") && 
+                        !string.IsNullOrEmpty(request.Metadata["DOCUMENT_ID"])
+            ? request.Metadata["DOCUMENT_ID"]
+            : Guid.NewGuid().ToString();
+        
+        var outputPath = Path.Combine(_tempPath, $"{documentId}.docx");
 
         try
         {
@@ -146,6 +162,10 @@ public class DocumentService : IDocumentService
                 doc.Range.Replace($"{{{{{meta.Key}}}}}", meta.Value,
                     new FindReplaceOptions { MatchCase = false });
             }
+
+            // Get cached sections (in real app, this would come from database)
+            // For prototype, we'll use the mappings to get content
+            _logger.LogInformation($"Processing {request.Mappings.Count} mappings");
 
             // Apply mappings
             foreach (var mapping in request.Mappings.OrderBy(m => m.OrderIndex))
@@ -162,14 +182,63 @@ public class DocumentService : IDocumentService
 
                     builder.MoveToBookmark(mapping.TargetBookmark);
 
-                    // Insert content
+                    // Get the actual section content
+                    string contentToInsert = string.Empty;
+
                     if (!string.IsNullOrEmpty(mapping.EditedContent))
                     {
-                        builder.Write(mapping.EditedContent);
+                        // Use edited content if provided
+                        contentToInsert = mapping.EditedContent;
+                        _logger.LogDebug($"Using edited content for {mapping.TargetBookmark}");
                     }
                     else
                     {
-                        builder.Write($"[Content from {mapping.SourceSectionId}]");
+                        // Try to find the section from cache
+                        // Extract section index from sourceSectionId (e.g., "section_3" -> 3)
+                        var sectionId = mapping.SourceSectionId;
+                        
+                        // Find in any cached document (simple approach for prototype)
+                        DocumentSection? foundSection = null;
+                        foreach (var cachedDoc in _extractedDocumentsCache.Values)
+                        {
+                            foundSection = cachedDoc.FirstOrDefault(s => s.Id == sectionId);
+                            if (foundSection != null) break;
+                        }
+
+                        if (foundSection != null)
+                        {
+                            contentToInsert = foundSection.Content;
+                            _logger.LogDebug($"Found section {sectionId} with content length: {contentToInsert.Length}");
+                        }
+                        else
+                        {
+                            contentToInsert = $"[Section {sectionId} not found in cache]";
+                            _logger.LogWarning($"Section {sectionId} not found in cache");
+                        }
+                    }
+
+                    // Insert the content
+                    if (!string.IsNullOrEmpty(contentToInsert))
+                    {
+                        // Clear existing content at bookmark
+                        if (bookmark.BookmarkStart.NextSibling != null && 
+                            bookmark.BookmarkStart.NextSibling != bookmark.BookmarkEnd)
+                        {
+                            // Remove nodes between bookmark start and end
+                            var nodeToRemove = bookmark.BookmarkStart.NextSibling;
+                            while (nodeToRemove != null && nodeToRemove != bookmark.BookmarkEnd)
+                            {
+                                var next = nodeToRemove.NextSibling;
+                                nodeToRemove.Remove();
+                                nodeToRemove = next;
+                            }
+                        }
+
+                        // Insert new content
+                        builder.MoveToBookmark(mapping.TargetBookmark);
+                        builder.Write(contentToInsert);
+                        
+                        _logger.LogInformation($"Inserted content into {mapping.TargetBookmark}");
                     }
                 }
                 catch (Exception ex)
@@ -181,13 +250,17 @@ public class DocumentService : IDocumentService
             // Save
             doc.Save(outputPath, SaveFormat.Docx);
             var result = await File.ReadAllBytesAsync(outputPath);
+            
+            _logger.LogInformation($"Decision document generated successfully, size: {result.Length} bytes");
+            
             return result;
         }
-        finally
+        catch (Exception ex)
         {
-            if (File.Exists(outputPath))
-                File.Delete(outputPath);
+            _logger.LogError(ex, "Error generating decision document");
+            throw;
         }
+        // Don't delete the file - keep it for Collabora editing
     }
 
     public Task<List<TemplateBookmark>> GetTemplateBookmarks(string templateId)

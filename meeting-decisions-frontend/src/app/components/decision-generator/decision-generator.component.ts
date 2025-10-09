@@ -2,8 +2,10 @@
 
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { DocumentUploadComponent } from '../document-upload/document-upload.component';
 import { SectionMapperComponent } from '../section-mapper/section-mapper.component';
+import { CollaboraEditorComponent } from '../collabora-editor/collabora-editor.component';
 import { DocumentService } from '../../services/document.service';
 import { MappingService } from '../../services/mapping.service';
 import {
@@ -16,7 +18,7 @@ import {
 @Component({
   selector: 'app-decision-generator',
   standalone: true,
-  imports: [CommonModule, DocumentUploadComponent, SectionMapperComponent],
+  imports: [CommonModule, DocumentUploadComponent, SectionMapperComponent, CollaboraEditorComponent],
   template: `
     <div class="generator-container">
       <header class="app-header">
@@ -108,7 +110,20 @@ import {
                 <span class="spinner"></span> Δημιουργία...
               </span>
             </button>
+
+            <button
+              *ngIf="lastGeneratedDocumentId"
+              (click)="editOnline()"
+              class="btn btn-edit">
+              ✏️ Επεξεργασία Online
+            </button>
           </div>
+
+          <app-collabora-editor
+            *ngIf="showCollaboraEditor"
+            [documentId]="lastGeneratedDocumentId"
+            [documentName]="'Απόφαση_' + lastGeneratedDocumentId + '.docx'">
+          </app-collabora-editor>
 
           <div *ngIf="previewHtml" class="preview-container">
             <div class="preview-header">
@@ -332,6 +347,16 @@ import {
       box-shadow: 0 8px 24px rgba(46, 204, 113, 0.4);
     }
 
+    .btn-edit {
+      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+      color: white;
+    }
+
+    .btn-edit:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 24px rgba(243, 156, 18, 0.4);
+    }
+
     .btn-outline {
       background: white;
       border: 3px solid #3498db;
@@ -501,6 +526,8 @@ export class DecisionGeneratorComponent {
   isGenerating: boolean = false;
   generationSuccess: boolean = false;
   generationError: string = '';
+  lastGeneratedDocumentId: string = '';
+  showCollaboraEditor: boolean = false;
 
   constructor(
     private documentService: DocumentService,
@@ -509,6 +536,10 @@ export class DecisionGeneratorComponent {
 
   onExtractionComplete(data: DocumentExtractionResponse): void {
     console.log('Extraction complete:', data);
+    console.log('Sections count:', data.sections?.length);
+    console.log('First section:', data.sections?.[0]);
+    console.log('Available bookmarks:', data.availableBookmarks);
+
     this.extractedData = data;
 
     // Load template bookmarks
@@ -594,6 +625,10 @@ export class DecisionGeneratorComponent {
         this.isGenerating = false;
         this.generationSuccess = true;
 
+        // Save the document ID for editing
+        this.lastGeneratedDocumentId = request.metadata['DOCUMENT_ID'] ||
+                                        `temp_${Date.now()}`;
+
         // Download the file
         const filename = `Αποφαση_${request.meetingId}_${this.formatDate(new Date())}.docx`;
         this.documentService.downloadDocument(blob, filename);
@@ -611,6 +646,10 @@ export class DecisionGeneratorComponent {
     });
   }
 
+  editOnline(): void {
+    this.showCollaboraEditor = true;
+  }
+
   private buildGenerateRequest(): GenerateDecisionRequest {
     return {
       meetingId: 1, // TODO: Get from actual meeting context
@@ -619,7 +658,8 @@ export class DecisionGeneratorComponent {
       metadata: {
         'MEETING_DATE': this.formatDate(new Date()),
         'DECISION_NUMBER': 'ΑΠ-' + Math.floor(Math.random() * 1000),
-        'YEAR': new Date().getFullYear().toString()
+        'YEAR': new Date().getFullYear().toString(),
+        'DOCUMENT_ID': this.extractedData?.documentId || '' // Pass the document ID
       }
     };
   }
