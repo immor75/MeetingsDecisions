@@ -12,6 +12,10 @@ public class DocumentService : IDocumentService
     private readonly ILogger<DocumentService> _logger;
     private readonly string _templatesPath;
     private readonly string _tempPath;
+    
+    // Cache για τα extracted documents (temporary solution)
+    private static readonly Dictionary<string, List<DocumentSection>> _extractedDocumentsCache 
+        = new Dictionary<string, List<DocumentSection>>();
 
     public DocumentService(ILogger<DocumentService> logger, IConfiguration configuration)
     {
@@ -47,50 +51,85 @@ public class DocumentService : IDocumentService
 
             int sectionIndex = 0;
 
-            // Extract paragraphs
-            foreach (Paragraph para in doc.GetChildNodes(NodeType.Paragraph, true))
+            // Extract paragraphs - iterate through all sections and paragraphs
+            foreach (Section docSection in doc.Sections)
             {
-                if (string.IsNullOrWhiteSpace(para.GetText().Trim()))
-                    continue;
-
-                var section = new DocumentSection
+                foreach (Paragraph para in docSection.Body.Paragraphs)
                 {
-                    Id = $"section_{sectionIndex++}",
-                    Content = para.GetText().Trim(),
-                    HtmlContent = ConvertToHtml(para),
-                    Type = DetermineSectionType(para),
-                    OrderIndex = sectionIndex,
-                    HasFormatting = HasFormatting(para),
-                    Styles = ExtractStyles(para)
-                };
+                    // Get the text and trim it
+                    var text = para.GetText();
+                    
+                    // Skip if empty or just whitespace
+                    if (string.IsNullOrWhiteSpace(text))
+                        continue;
 
-                sections.Add(section);
+                    // Skip page breaks and section breaks
+                    if (text.Trim().Length < 2)
+                        continue;
+
+                    var section = new DocumentSection
+                    {
+                        Id = $"section_{sectionIndex}",
+                        Content = text.Trim(),
+                        HtmlContent = ConvertToHtml(para),
+                        Type = DetermineSectionType(para),
+                        OrderIndex = sectionIndex,
+                        HasFormatting = HasFormatting(para),
+                        Styles = ExtractStyles(para)
+                    };
+
+                    sections.Add(section);
+                    sectionIndex++;
+
+                    // Log for debugging
+                    _logger.LogDebug($"Extracted section {sectionIndex}: {text.Substring(0, Math.Min(50, text.Length))}...");
+                }
+
+                // Extract tables from this section
+                foreach (Table table in docSection.Body.Tables)
+                {
+                    var tableText = ExtractTableText(table);
+                    
+                    if (string.IsNullOrWhiteSpace(tableText))
+                        continue;
+
+                    sections.Add(new DocumentSection
+                    {
+                        Id = $"table_{sectionIndex}",
+                        Content = tableText.Trim(),
+                        HtmlContent = ConvertTableToHtml(table),
+                        Type = SectionType.Table,
+                        OrderIndex = sectionIndex,
+                        HasFormatting = true
+                    });
+
+                    sectionIndex++;
+                    _logger.LogDebug($"Extracted table {sectionIndex}");
+                }
             }
 
-            // Extract tables
-            foreach (Table table in doc.GetChildNodes(NodeType.Table, true))
-            {
-                sections.Add(new DocumentSection
-                {
-                    Id = $"table_{sectionIndex++}",
-                    Content = ExtractTableText(table),
-                    HtmlContent = ConvertTableToHtml(table),
-                    Type = SectionType.Table,
-                    OrderIndex = sectionIndex,
-                    HasFormatting = true
-                });
-            }
+            _logger.LogInformation($"Total sections extracted: {sections.Count}");
 
             // Get bookmarks from template
             var bookmarks = await GetTemplateBookmarks(templateId);
 
+            var documentId = Guid.NewGuid().ToString();
+            
+            // Cache the sections for later use in GenerateDecision
+            _extractedDocumentsCache[documentId] = sections;
+
             return new DocumentExtractionResponse
             {
-                DocumentId = Guid.NewGuid().ToString(),
+                DocumentId = documentId,
                 Sections = sections.OrderBy(s => s.OrderIndex).ToList(),
                 AvailableBookmarks = bookmarks.Select(b => b.Name).ToList(),
                 DocumentMetadata = ExtractMetadata(doc)
             };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error extracting document sections");
+            throw;
         }
         finally
         {
@@ -102,7 +141,14 @@ public class DocumentService : IDocumentService
     public async Task<byte[]> GenerateDecision(GenerateDecisionRequest request)
     {
         var templatePath = Path.Combine(_templatesPath, $"{request.TemplateId}.docx");
-        var outputPath = Path.Combine(_tempPath, Guid.NewGuid().ToString() + ".docx");
+        
+        // Use document ID from metadata if provided, otherwise generate new
+        var documentId = request.Metadata.ContainsKey("DOCUMENT_ID") && 
+                        !string.IsNullOrEmpty(request.Metadata["DOCUMENT_ID"])
+            ? request.Metadata["DOCUMENT_ID"]
+            : Guid.NewGuid().ToString();
+        
+        var outputPath = Path.Combine(_tempPath, $"{documentId}.docx");
 
         try
         {
@@ -116,6 +162,10 @@ public class DocumentService : IDocumentService
                 doc.Range.Replace($"{{{{{meta.Key}}}}}", meta.Value,
                     new FindReplaceOptions { MatchCase = false });
             }
+
+            // Get cached sections (in real app, this would come from database)
+            // For prototype, we'll use the mappings to get content
+            _logger.LogInformation($"Processing {request.Mappings.Count} mappings");
 
             // Apply mappings
             foreach (var mapping in request.Mappings.OrderBy(m => m.OrderIndex))
@@ -132,14 +182,63 @@ public class DocumentService : IDocumentService
 
                     builder.MoveToBookmark(mapping.TargetBookmark);
 
-                    // Insert content
+                    // Get the actual section content
+                    string contentToInsert = string.Empty;
+
                     if (!string.IsNullOrEmpty(mapping.EditedContent))
                     {
-                        builder.Write(mapping.EditedContent);
+                        // Use edited content if provided
+                        contentToInsert = mapping.EditedContent;
+                        _logger.LogDebug($"Using edited content for {mapping.TargetBookmark}");
                     }
                     else
                     {
-                        builder.Write($"[Content from {mapping.SourceSectionId}]");
+                        // Try to find the section from cache
+                        // Extract section index from sourceSectionId (e.g., "section_3" -> 3)
+                        var sectionId = mapping.SourceSectionId;
+                        
+                        // Find in any cached document (simple approach for prototype)
+                        DocumentSection? foundSection = null;
+                        foreach (var cachedDoc in _extractedDocumentsCache.Values)
+                        {
+                            foundSection = cachedDoc.FirstOrDefault(s => s.Id == sectionId);
+                            if (foundSection != null) break;
+                        }
+
+                        if (foundSection != null)
+                        {
+                            contentToInsert = foundSection.Content;
+                            _logger.LogDebug($"Found section {sectionId} with content length: {contentToInsert.Length}");
+                        }
+                        else
+                        {
+                            contentToInsert = $"[Section {sectionId} not found in cache]";
+                            _logger.LogWarning($"Section {sectionId} not found in cache");
+                        }
+                    }
+
+                    // Insert the content
+                    if (!string.IsNullOrEmpty(contentToInsert))
+                    {
+                        // Clear existing content at bookmark
+                        if (bookmark.BookmarkStart.NextSibling != null && 
+                            bookmark.BookmarkStart.NextSibling != bookmark.BookmarkEnd)
+                        {
+                            // Remove nodes between bookmark start and end
+                            var nodeToRemove = bookmark.BookmarkStart.NextSibling;
+                            while (nodeToRemove != null && nodeToRemove != bookmark.BookmarkEnd)
+                            {
+                                var next = nodeToRemove.NextSibling;
+                                nodeToRemove.Remove();
+                                nodeToRemove = next;
+                            }
+                        }
+
+                        // Insert new content
+                        builder.MoveToBookmark(mapping.TargetBookmark);
+                        builder.Write(contentToInsert);
+                        
+                        _logger.LogInformation($"Inserted content into {mapping.TargetBookmark}");
                     }
                 }
                 catch (Exception ex)
@@ -151,13 +250,17 @@ public class DocumentService : IDocumentService
             // Save
             doc.Save(outputPath, SaveFormat.Docx);
             var result = await File.ReadAllBytesAsync(outputPath);
+            
+            _logger.LogInformation($"Decision document generated successfully, size: {result.Length} bytes");
+            
             return result;
         }
-        finally
+        catch (Exception ex)
         {
-            if (File.Exists(outputPath))
-                File.Delete(outputPath);
+            _logger.LogError(ex, "Error generating decision document");
+            throw;
         }
+        // Don't delete the file - keep it for Collabora editing
     }
 
     public Task<List<TemplateBookmark>> GetTemplateBookmarks(string templateId)
@@ -231,13 +334,37 @@ public class DocumentService : IDocumentService
         var sb = new StringBuilder();
         sb.Append("<p>");
 
-        foreach (Run run in para.Runs)
+        // Check if paragraph has any runs
+        if (para.Runs.Count == 0)
         {
-            var text = System.Net.WebUtility.HtmlEncode(run.Text);
-            if (run.Font.Bold) text = $"<strong>{text}</strong>";
-            if (run.Font.Italic) text = $"<em>{text}</em>";
-            if (run.Font.Underline != Underline.None) text = $"<u>{text}</u>";
+            // If no runs, just get the text directly
+            var text = System.Net.WebUtility.HtmlEncode(para.GetText().Trim());
             sb.Append(text);
+        }
+        else
+        {
+            // Process each run
+            foreach (Run run in para.Runs)
+            {
+                var text = run.Text;
+                
+                // Skip empty runs
+                if (string.IsNullOrEmpty(text))
+                    continue;
+
+                // Encode HTML entities
+                text = System.Net.WebUtility.HtmlEncode(text);
+
+                // Apply formatting
+                if (run.Font.Bold) 
+                    text = $"<strong>{text}</strong>";
+                if (run.Font.Italic) 
+                    text = $"<em>{text}</em>";
+                if (run.Font.Underline != Underline.None) 
+                    text = $"<u>{text}</u>";
+                
+                sb.Append(text);
+            }
         }
 
         sb.Append("</p>");
