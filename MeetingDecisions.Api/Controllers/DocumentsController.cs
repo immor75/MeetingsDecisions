@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using MeetingDecisions.Api.Services;
 using MeetingDecisions.Api.DTOs;
 using MeetingDecisions.Api.Models;
+using System.Security.Claims;
 
 namespace MeetingDecisions.Api.Controllers;
 
@@ -11,6 +12,8 @@ public class DocumentsController : ControllerBase
 {
     private readonly IDocumentService _documentService;
     private readonly ILogger<DocumentsController> _logger;
+    private readonly IWopiTokenService _tokenService;
+    private readonly ICollaboraDiscoveryService _discovery;
 
     public DocumentsController(
         IDocumentService documentService,
@@ -153,6 +156,38 @@ public class DocumentsController : ControllerBase
             _logger.LogError(ex, "Error retrieving templates");
             return StatusCode(500, new { error = "Failed to retrieve templates" });
         }
+    }
+
+    [HttpPost("{fileId}/wopi-token")]
+    public IActionResult GetWopiToken(string fileId)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+        var role   = User.IsInRole("Secretary") ? "secretary" : "member";
+
+        var token = _tokenService.Generate(userId, fileId, role);
+        var ttl   = DateTimeOffset.UtcNow.AddMinutes(30).ToUnixTimeMilliseconds();
+
+        return Ok(new { token, ttl });
+    }
+
+    [HttpGet("collabora-editor-url")]
+    public async Task<IActionResult> GetEditorUrl(
+        [FromQuery] string fileId,
+        [FromQuery] string action = "edit") // "edit" | "view"
+    {
+        // Βρες το extension του αρχείου
+        var doc = await _documentService.GetByIdAsync(fileId);
+        var ext = Path.GetExtension(doc.FileName).TrimStart('.'); // "docx"
+
+        // Πάρε το URL από το Collabora discovery (cached)
+        var editorUrl = await _discovery.GetEditorUrlAsync(ext, action);
+
+        // Πρόσθεσε το WOPISrc parameter
+        var wopiSrc = Uri.EscapeDataString(
+            $"https://yourapi.yourorg.gr/wopi/files/{fileId}"
+        );
+
+        return Ok(new { editorUrl = $"{editorUrl}WOPISrc={wopiSrc}" });
     }
 }
 

@@ -2,11 +2,18 @@ using MeetingDecisions.Api;
 using MeetingDecisions.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<IWopiTokenService, JwtWopiTokenService>();
+builder.Services.AddSingleton<ICollaboraDiscoveryService, CollaboraDiscoveryService>();
 
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.OperationFilter<SwaggerFileOperationFilter>();
+});
 
 // CORS για Angular και Collabora
 builder.Services.AddCors(options =>

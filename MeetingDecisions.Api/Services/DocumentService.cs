@@ -421,4 +421,66 @@ public class DocumentService : IDocumentService
             .Replace("Bookmark", "")
             .Trim();
     }
+
+    // WOPI-specific methods implementation
+    public async Task<DocumentInfo?> GetByIdAsync(string fileId)
+    {
+        // This would normally connect to a database
+        // For demo purposes, return a sample document
+        var filePath = Path.Combine(_tempPath, $"{fileId}.docx");
+        if (!File.Exists(filePath))
+            return null;
+
+        var fileInfo = new FileInfo(filePath);
+        return new DocumentInfo
+        {
+            FileName = $"{fileId}.docx",
+            SizeInBytes = fileInfo.Length,
+            OwnerId = "admin",
+            LastModified = fileInfo.LastWriteTime
+        };
+    }
+
+    public async Task<byte[]?> GetContentsAsync(string fileId)
+    {
+        var filePath = Path.Combine(_tempPath, $"{fileId}.docx");
+        if (!File.Exists(filePath))
+            return null;
+
+        return await File.ReadAllBytesAsync(filePath);
+    }
+
+    public async Task SaveContentsAsync(string fileId, byte[] fileBytes, string userId)
+    {
+        var filePath = Path.Combine(_tempPath, $"{fileId}.docx");
+        await File.WriteAllBytesAsync(filePath, fileBytes);
+        _logger.LogInformation($"Document {fileId} saved by user {userId}");
+    }
+
+    // Simple in-memory lock storage (for production, use Redis or database)
+    private static readonly Dictionary<string, (string lockId, DateTime expires)> _locks = new();
+
+    public Task<string?> GetLockAsync(string fileId)
+    {
+        if (_locks.TryGetValue(fileId, out var lockInfo))
+        {
+            if (lockInfo.expires > DateTime.UtcNow)
+                return Task.FromResult<string?>(lockInfo.lockId);
+            
+            _locks.Remove(fileId);
+        }
+        return Task.FromResult<string?>(null);
+    }
+
+    public Task SetLockAsync(string fileId, string lockId, TimeSpan duration)
+    {
+        _locks[fileId] = (lockId, DateTime.UtcNow.Add(duration));
+        return Task.CompletedTask;
+    }
+
+    public Task ClearLockAsync(string fileId)
+    {
+        _locks.Remove(fileId);
+        return Task.CompletedTask;
+    }
 }
