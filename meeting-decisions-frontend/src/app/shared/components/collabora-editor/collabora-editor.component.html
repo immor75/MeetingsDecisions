@@ -1,0 +1,38 @@
+<div class="collabora-wrapper">
+  
+  <!-- Loading state -->
+  @if (isLoading) {
+    <div class="loading-overlay">
+      <span>Φόρτωση εγγράφου...</span>
+    </div>
+  }
+
+  <!-- Error state -->
+  @if (error) {
+    <div class="error-message">{{ error }}</div>
+  }
+
+  <!-- Το iframe που θα φιλοξενήσει τον Collabora editor -->
+  <iframe
+    id="collabora-online-iframe"
+    name="collabora-online-iframe"
+    [class.hidden]="isLoading || !!error"
+    allow="camera;microphone;fullscreen">
+  </iframe>
+
+  <!-- Κρυφή φόρμα: έτσι γίνεται το POST προς Collabora (WOPI spec) -->
+  @if (!isLoading && !error && collaboraUrl) {
+    <form
+      #wopiForm
+      [action]="collaboraUrl"
+      enctype="multipart/form-data"
+      method="post"
+      target="collabora-online-iframe"
+      style="display:none">
+      
+      <input name="access_token" [value]="accessToken" type="hidden">
+      <input name="access_token_ttl" [value]="accessTokenTtl" type="hidden">
+    </form>
+  }
+
+</div>
