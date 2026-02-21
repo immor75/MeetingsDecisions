@@ -1,10 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { AppComponent } from './app.component';
+import { RouterModule } from '@angular/router';
 
 describe('AppComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [AppComponent],
+      imports: [AppComponent, RouterModule.forRoot([])],
     }).compileComponents();
   });
 
@@ -20,10 +21,10 @@ describe('AppComponent', () => {
     expect(app.title).toEqual('meeting-decisions-frontend');
   });
 
-  it('should render title', () => {
+  it('should render the navigation brand', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Hello, meeting-decisions-frontend');
+    expect(compiled.querySelector('.nav-brand')?.textContent).toContain('Σύστημα Διαχείρισης Συλλογικών Οργάνων');
   });
 });

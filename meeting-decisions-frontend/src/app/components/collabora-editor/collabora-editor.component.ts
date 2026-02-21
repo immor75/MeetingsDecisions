@@ -4,6 +4,7 @@ import { Component, Input, OnInit, OnDestroy, ViewChild, ElementRef } from '@ang
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { HttpClient } from '@angular/common/http';
+import { ActivatedRoute, Router } from '@angular/router';
 import { environment } from '../../../environments/environment';
 
 interface CollaboraSession {
@@ -160,11 +161,21 @@ export class CollaboraEditorComponent implements OnInit, OnDestroy {
 
   constructor(
     private http: HttpClient,
-    private sanitizer: DomSanitizer
-  ) {}
+    private sanitizer: DomSanitizer,
+    private route: ActivatedRoute,
+    private router: Router
+  ) { }
 
   ngOnInit(): void {
-    this.initializeEditor();
+    // Check if ID is provided via route params, else fallback to @Input
+    this.route.paramMap.subscribe(params => {
+      const idFromRoute = params.get('id');
+      if (idFromRoute) {
+        this.documentId = idFromRoute;
+        this.documentName = `Document ${idFromRoute}`;
+      }
+      this.initializeEditor();
+    });
   }
 
   ngOnDestroy(): void {
@@ -172,6 +183,8 @@ export class CollaboraEditorComponent implements OnInit, OnDestroy {
   }
 
   async initializeEditor(): Promise<void> {
+    if (!this.documentId) return;
+
     try {
       this.isLoading = true;
       this.error = '';
@@ -199,7 +212,7 @@ export class CollaboraEditorComponent implements OnInit, OnDestroy {
       this.isLoading = false;
     } catch (err: any) {
       console.error('Error initializing Collabora editor:', err);
-      this.error = err.error?.error || 'Σφάλμα κατά τη φόρτωση του editor';
+      this.error = err.error?.error || 'Σφάλμα κατά τη φόρτωση του editor, το έγγραφο ίσως να μην υπάρχει!';
       this.isLoading = false;
     }
   }
@@ -209,8 +222,7 @@ export class CollaboraEditorComponent implements OnInit, OnDestroy {
   }
 
   closeEditor(): void {
-    // Emit close event or navigate back
-    window.history.back();
+    this.router.navigate(['/editor-setup']);
   }
 
   retry(): void {
