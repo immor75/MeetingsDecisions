@@ -17,7 +17,7 @@ import {
 export class DocumentService {
   private apiUrl = `${environment.apiUrl}/documents`;
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient) { }
 
   extractProposal(file: File, templateId: string): Observable<DocumentExtractionResponse> {
     const formData = new FormData();
@@ -26,6 +26,17 @@ export class DocumentService {
 
     return this.http.post<DocumentExtractionResponse>(
       `${this.apiUrl}/proposals/extract`,
+      formData
+    );
+  }
+
+  uploadForEditing(file: File): Observable<{ documentId: string }> {
+    const formData = new FormData();
+    formData.append('File', file);
+
+    // We navigate one level up from /documents to hit /collabora/upload
+    return this.http.post<{ documentId: string }>(
+      `${environment.apiUrl}/collabora/upload`,
       formData
     );
   }
