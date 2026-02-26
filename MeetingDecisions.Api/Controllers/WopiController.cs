@@ -12,11 +12,15 @@ public class WopiController : ControllerBase
 {
     private readonly IDocumentService _documentService;
     private readonly IWopiTokenService _tokenService;
+    private readonly ILogger<WopiController> _logger;
+    private readonly IConfiguration _configuration;
 
-    public WopiController(IDocumentService documentService, IWopiTokenService tokenService)
+    public WopiController(IDocumentService documentService, IWopiTokenService tokenService, ILogger<WopiController> logger, IConfiguration configuration)
     {
         _documentService = documentService;
         _tokenService = tokenService;
+        _logger = logger;
+        _configuration = configuration;
     }
 
     // ─── CheckFileInfo ───────────────────────────────────────────
@@ -45,7 +49,7 @@ public class WopiController : ControllerBase
             SupportsLocks     = true,
             SupportsGetLock   = true,
             UserCanNotWriteRelative = true, // Αποτρέπει "Save As" σε νέο αρχείο
-            PostMessageOrigin = "https://yourapp.yourorg.gr"
+            PostMessageOrigin = _configuration["Collabora:PostMessageOrigin"] ?? "http://192.168.6.138:4200"
         });
     }
 

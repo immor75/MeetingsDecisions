@@ -4,7 +4,7 @@ using MeetingDecisions.Api.Services;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
-builder.Services.AddScoped<IWopiTokenService, JwtWopiTokenService>();
+builder.Services.AddSingleton<IWopiTokenService, JwtWopiTokenService>();
 builder.Services.AddSingleton<ICollaboraDiscoveryService, CollaboraDiscoveryService>();
 
 // Add services to the container
@@ -22,8 +22,10 @@ builder.Services.AddCors(options =>
         policy => policy
             .WithOrigins(
                 "http://localhost:4200", 
+                "http://192.168.6.138:4200",
                 "http://localhost:9980",
-                "http://127.0.0.1:9980"
+                "http://127.0.0.1:9980",
+                "https://dc-collabora.dataverse.gr"
             )
             .AllowAnyMethod()
             .AllowAnyHeader()

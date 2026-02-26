@@ -35,6 +35,8 @@ public class CollaboraSessionRequest
     public string DocumentId { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
     public bool ReadOnly { get; set; } = false;
+    public string UserId { get; set; } = string.Empty;
+    public string Role { get; set; } = "member"; // "secretary" or "member"
 }
 
 // Collabora session response

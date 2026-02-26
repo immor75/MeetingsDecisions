@@ -24,10 +24,9 @@ export class CollaboraEditorComponent implements OnInit, AfterViewInit {
   error = '';
 
   // Τα URLs που κοινοποιείς μέσω environment
-  private collaboraBaseUrl = 'https://collabora.yourorg.gr'; // On-Premise Collabora
-  private wopiHostUrl = 'https://api.yourorg.gr/wopi/files'; // Ο δικός σου backend
+  private wopiHostUrl = `${window.location.protocol}//${window.location.hostname}:5000/wopi/files`; // Ο δικός σου backend
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient) { }
 
   ngOnInit(): void {
     this.initEditor();
@@ -57,7 +56,7 @@ export class CollaboraEditorComponent implements OnInit, AfterViewInit {
   private buildCollaboraUrl(): void {
     // Το Collabora discovery endpoint επιστρέφει ποιο URL ανοίγει .docx αρχεία
     const action = this.readOnly ? 'view' : 'edit';
-    
+
     // Συνήθως αυτό το κάνεις από backend για να μην εκθέτεις το Collabora URL
     // Εδώ simplified:
     this.http.get<{ editorUrl: string }>(

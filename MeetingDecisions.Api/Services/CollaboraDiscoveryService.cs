@@ -16,7 +16,7 @@ public class CollaboraDiscoveryService : ICollaboraDiscoveryService
     {
         _httpClientFactory = httpClientFactory;
         _cache = cache;
-        _collaboraUrl = config["Wopi:CollaboraBaseUrl"]!;
+        _collaboraUrl = config["Collabora:Url"]!;
     }
 
     public async Task<string> GetEditorUrlAsync(string extension, string action)

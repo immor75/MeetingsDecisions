@@ -183,11 +183,15 @@ public class DocumentsController : ControllerBase
         var editorUrl = await _discovery.GetEditorUrlAsync(ext, action);
 
         // Πρόσθεσε το WOPISrc parameter
+        // Read the host URL from configuration instead of hardcoding
+        var wopiHost = _discovery.GetType().GetField("_collaboraUrl", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(_discovery) as string;
+        // Actually, better to get it from HttpContext Request if we don't inject IConfiguration here yet
+        var host = $"{Request.Scheme}://{Request.Host}";
         var wopiSrc = Uri.EscapeDataString(
-            $"https://yourapi.yourorg.gr/wopi/files/{fileId}"
+            $"{host}/wopi/files/{fileId}"
         );
 
-        return Ok(new { editorUrl = $"{editorUrl}WOPISrc={wopiSrc}" });
+        return Ok(new { editorUrl = $"{editorUrl}&WOPISrc={wopiSrc}" });
     }
 }
 

@@ -5,9 +5,11 @@ import { DecisionGeneratorComponent } from './components/decision-generator/deci
 import { HomeComponent } from './components/home/home.component';
 import { EditorSetupComponent } from './components/editor-setup/editor-setup.component';
 import { CollaboraEditorComponent } from './components/collabora-editor/collabora-editor.component';
+import { LoginComponent } from './components/login/login.component';
 
 export const routes: Routes = [
   { path: '', component: HomeComponent, pathMatch: 'full' },
+  { path: 'login', component: LoginComponent },
   { path: 'upload', component: DocumentUploadComponent },
   { path: 'mapper', component: SectionMapperComponent },
   { path: 'generator', component: DecisionGeneratorComponent },

@@ -27,7 +27,7 @@ public class JwtWopiTokenService : IWopiTokenService
 
     public JwtWopiTokenService(IConfiguration config)
     {
-        _secret = config["Wopi:TokenSecret"]!;
+        _secret = config["Collabora:AccessTokenSecret"]!;
     }
 
     public string Generate(string userId, string fileId, string role)

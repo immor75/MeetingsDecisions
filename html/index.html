@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collabora WOPI Host Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .endpoint {
+            background: #f8f9fa;
+            padding: 10px;
+            border-left: 4px solid #007bff;
+            margin: 10px 0;
+        }
+        .endpoint code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏛️ Collabora WOPI Host Example</h1>
+        <p>This is the official Collabora .NET WOPI host example application.</p>
+        
+        <h2>� Upload Document:</h2>
+        <div id="uploadArea" style="border: 2px dashed #007bff; padding: 20px; text-align: center; margin: 10px 0; border-radius: 5px; cursor: pointer; transition: all 0.3s;">
+            <div id="uploadContent">
+                📄 <strong>Drop your .docx file here</strong> or <button type="button" onclick="document.getElementById('fileInput').click()" style="background: none; border: none; color: #007bff; text-decoration: underline; cursor: pointer;">browse</button><br>
+                <small>Supported formats: .docx, .doc</small>
+            </div>
+            <input type="file" id="fileInput" accept=".docx,.doc" style="display: none;" onchange="handleFileSelect(event)">
+        </div>
+        <div id="uploadProgress" style="display: none; margin: 10px 0;">
+            <div style="background: #f0f0f0; border-radius: 5px; overflow: hidden;">
+                <div id="progressBar" style="background: #007bff; height: 20px; width: 0%; transition: width 0.3s; border-radius: 5px;"></div>
+            </div>
+            <small id="uploadStatus">Uploading...</small>
+        </div>
+
+        <h2>�📋 Available Endpoints:</h2>
+        
+        <div class="endpoint">
+            <strong>GET</strong> <code>/wopi/files/{fileId}</code><br>
+            <em>CheckFileInfo - Returns file metadata</em>
+        </div>
+        
+        <div class="endpoint">
+            <strong>GET</strong> <code>/wopi/files/{fileId}/contents</code><br>
+            <em>GetFile - Returns file contents</em>
+        </div>
+        
+        <div class="endpoint">
+            <strong>POST</strong> <code>/wopi/files/{fileId}/contents</code><br>
+            <em>PutFile - Saves file contents</em>
+        </div>
+        
+        <div class="endpoint">
+            <strong>GET</strong> <code>/collaboraUrl</code><br>
+            <em>Get Collabora discovery URL</em>
+        </div>
+        
+        <h2>🔧 Quick Tests:</h2>
+        <button class="test-button" onclick="testEndpoint('/wopi/files/mydoc')">Test CheckFileInfo (mydoc.docx)</button>
+        <button class="test-button" onclick="testEndpoint('/wopi/files/mydoc/contents')">Test GetFile (mydoc.docx)</button>
+        <button class="test-button" onclick="testEndpoint('/wopi/files/testdoc')">Test CheckFileInfo (testdoc.docx)</button>
+        <button class="test-button" onclick="testEndpoint('/wopi/files/testdoc/contents')">Test GetFile (testdoc.docx)</button>
+        <button class="test-button" onclick="testEndpoint('/collaboraUrl?server=https://dc-collabora.dataverse.gr')">Test Collabora URL</button>
+        <button class="test-button" onclick="window.open('./swagger', '_blank')">Open Swagger</button>
+        
+        <h2>📄 Create Collabora Session:</h2>
+        <div style="margin: 10px 0;">
+            Document ID: <input type="text" id="docId" value="mydoc" style="padding: 5px; margin: 0 5px;">
+            <button class="test-button" onclick="createCollaboraSession()">Open in Collabora</button>
+        </div>
+        
+        <div id="result" style="margin-top: 20px; padding: 10px; background: #f8f9fa; border-radius: 5px; display: none;"></div>
+    </div>
+
+    <script>
+        let uploadedDocuments = [];
+
+        // Drag and drop functionality
+        const uploadArea = document.getElementById('uploadArea');
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadArea = document.getElementById('uploadArea');
+            
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, highlight, false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, unhighlight, false);
+            });
+            
+            uploadArea.addEventListener('drop', handleDrop, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        function highlight() {
+            uploadArea.style.backgroundColor = '#e3f2fd';
+            uploadArea.style.borderColor = '#1976d2';
+        }
+        
+        function unhighlight() {
+            uploadArea.style.backgroundColor = 'transparent';
+            uploadArea.style.borderColor = '#007bff';
+        }
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                handleFileSelect({ target: { files: files } });
+            }
+        }
+
+        async function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Check file type
+            if (!file.name.toLowerCase().endsWith('.docx') && !file.name.toLowerCase().endsWith('.doc')) {
+                alert('Please select a .docx or .doc file');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            // Use filename without extension as document ID
+            const docId = file.name.replace(/\.[^/.]+$/, "");
+            formData.append('documentId', docId);
+
+            showUploadProgress();
+            
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    uploadedDocuments.push({
+                        documentId: result.documentId,
+                        fileName: result.fileName,
+                        size: result.size
+                    });
+                    
+                    showUploadSuccess(result);
+                    
+                    // Auto-fill the document ID input
+                    document.getElementById('docId').value = result.documentId;
+                } else {
+                    throw new Error(result.error || 'Upload failed');
+                }
+            } catch (error) {
+                showUploadError(error.message);
+            } finally {
+                hideUploadProgress();
+            }
+        }
+
+        function showUploadProgress() {
+            document.getElementById('uploadProgress').style.display = 'block';
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('uploadStatus').textContent = 'Uploading...';
+            
+            // Simulate progress
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 10;
+                document.getElementById('progressBar').style.width = progress + '%';
+                if (progress >= 90) {
+                    clearInterval(interval);
+                }
+            }, 100);
+        }
+
+        function hideUploadProgress() {
+            setTimeout(() => {
+                document.getElementById('uploadProgress').style.display = 'none';
+                document.getElementById('progressBar').style.width = '0%';
+            }, 500);
+        }
+
+        function showUploadSuccess(result) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = `
+                <strong>✅ File Uploaded Successfully!</strong><br>
+                <strong>Document ID:</strong> ${result.documentId}<br>
+                <strong>File Name:</strong> ${result.fileName}<br>
+                <strong>Size:</strong> ${(result.size / 1024).toFixed(2)} KB<br>
+                <em>You can now test WOPI endpoints or open in Collabora</em>
+            `;
+        }
+
+        function showUploadError(message) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = `
+                <strong>❌ Upload Failed!</strong><br>
+                <strong>Error:</strong> ${message}
+            `;
+        }
+
+        async function testEndpoint(url) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<strong>Testing:</strong> ' + url + '<br><em>Loading...</em>';
+            
+            try {
+                const response = await fetch(url);
+                const text = await response.text();
+                resultDiv.innerHTML = `
+                    <strong>URL:</strong> ${url}<br>
+                    <strong>Status:</strong> ${response.status} ${response.statusText}<br>
+                    <strong>Response:</strong><br>
+                    <pre style="background: white; padding: 10px; border-radius: 3px; overflow-x: auto;">${text}</pre>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <strong>URL:</strong> ${url}<br>
+                    <strong>Error:</strong> ${error.message}
+                `;
+            }
+        }
+
+        async function createCollaboraSession() {
+            const docId = document.getElementById('docId').value;
+            if (!docId) {
+                alert('Please enter a document ID');
+                return;
+            }
+
+            try {
+                // First, get the Collabora URL
+                const collaboraResponse = await fetch('/collaboraUrl?server=https://dc-collabora.dataverse.gr');
+                const collaboraData = await collaboraResponse.json();
+                
+                if (collaboraData.url) {
+                    // Build the Collabora URL with WOPI parameters
+                    const wopiSrc = encodeURIComponent(`http://192.168.6.138:3000/wopi/files/${docId}`);
+                    const accessToken = 'test-token'; // Simple token for testing
+                    
+                    const collaboraUrl = `${collaboraData.url}?WOPISrc=${wopiSrc}&access_token=${accessToken}`;
+                    
+                    // Open Collabora in new window
+                    window.open(collaboraUrl, '_blank');
+                    
+                    const resultDiv = document.getElementById('result');
+                    resultDiv.style.display = 'block';
+                    resultDiv.innerHTML = `
+                        <strong>Collabora Session Created!</strong><br>
+                        <strong>Document:</strong> ${docId}.docx<br>
+                        <strong>WOPI Src:</strong> http://192.168.6.138:3000/wopi/files/${docId}<br>
+                        <strong>Collabora URL:</strong><br>
+                        <a href="${collaboraUrl}" target="_blank" style="word-break: break-all;">${collaboraUrl}</a>
+                    `;
+                } else {
+                    throw new Error('Could not get Collabora URL');
+                }
+            } catch (error) {
+                const resultDiv = document.getElementById('result');
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = `
+                    <strong>Error creating Collabora session:</strong> ${error.message}
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
